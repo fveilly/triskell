@@ -1,0 +1,12 @@
+[package]
+name = "triskell"
+version = "0.1.0"
+authors = ["Florent Veilly <florent.veilly@gmail.com>"]
+edition = "2021"
+readme = "README.md"
+keywords = ["circular", "ring", "buffer", "tripartite", "queue"]
+license = "MIT OR Apache-2.0"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
