@@ -5,6 +5,7 @@ authors = ["Florent Veilly <florent.veilly@gmail.com>"]
 edition = "2021"
 description = "A tri-partite ring buffer"
 readme = "README.md"
+repository = "https://github.com/fveilly/triskell"
 keywords = ["circular", "ring", "buffer", "tripartite", "queue"]
 categories = ["data-structures"]
 license = "MIT"
