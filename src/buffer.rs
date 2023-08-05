@@ -115,6 +115,9 @@ pub struct TRBuffer<T> {
 }
 
 impl<T> TRBuffer<T> {
+    /// Construct a new empty TRBuffer.
+    ///
+    // The TRBuffer will not allocate until space is reserved.
     pub fn new() -> Self {
         TRBuffer {
             buffer: Vec::new(),
@@ -126,6 +129,9 @@ impl<T> TRBuffer<T> {
         }
     }
 
+    /// Construct a new empty TRBuffer with at least the specified capacity.
+    ///
+    /// The TRBuffer will be able to hold at least capacity elements without reallocating.
     pub fn with_capacity(len: usize) -> Self {
         let mut buffer = Vec::with_capacity(len);
 
@@ -142,11 +148,13 @@ impl<T> TRBuffer<T> {
         }
     }
 
+    /// Return a raw mutable pointer to the TRBuffer.
     #[inline]
-    fn ptr(&mut self) -> *mut T {
+    fn as_mut_ptr(&mut self) -> *mut T {
         self.buffer.as_mut_ptr()
     }
 
+    /// Return the total number of elements the TRBuffer can hold without reallocating.
     #[inline]
     pub fn capacity(&self) -> usize {
         self.buffer.capacity()
@@ -173,7 +181,7 @@ impl<T> TRBuffer<T> {
         &self.r_region
     }
     
-    /// Whether any space has been reserved or committed in the buffer.
+    /// Returns `true` if the TRBuffer contains no elements.
     #[inline]
     pub fn is_empty(&self) -> bool {
         self.reservation.is_none() &&
@@ -187,6 +195,7 @@ impl<T> TRBuffer<T> {
         self.reservation.as_ref()
     }
 
+    /// Returns the number of elements in the TRBuffer.
     #[inline]
     pub fn len(&self) -> usize {
         self.l_region.len() + self.m_region.len() + self.r_region.len()
@@ -221,8 +230,8 @@ impl<T> TRBuffer<T> {
         if self.r_region.len() > 0 {
             unsafe {
                 std::ptr::copy(
-                    self.ptr().add(self.r_region.start()),
-                    self.ptr().add(self.capacity() - self.r_region.len()),
+                    self.as_mut_ptr().add(self.r_region.start()),
+                    self.as_mut_ptr().add(self.capacity() - self.r_region.len()),
                     self.r_region.len());
             }
             self.r_region.set(self.capacity() - self.r_region.len(), self.capacity());
@@ -236,8 +245,8 @@ impl<T> TRBuffer<T> {
         if self.r_region.len() > 0 {
             unsafe {
                 std::ptr::copy(
-                    self.ptr().add(self.r_region.start()),
-                    self.ptr().add(self.capacity() - self.r_region.len()),
+                    self.as_mut_ptr().add(self.r_region.start()),
+                    self.as_mut_ptr().add(self.capacity() - self.r_region.len()),
                     self.r_region.len());
             }
             self.r_region.set(self.capacity() - self.r_region.len(), self.capacity());
@@ -246,8 +255,8 @@ impl<T> TRBuffer<T> {
         if self.l_region.len() > 0 {
             unsafe {
                 std::ptr::copy_nonoverlapping(
-                    self.ptr().add(self.l_region.start()),
-                    self.ptr().add(self.m_region.end()),
+                    self.as_mut_ptr().add(self.l_region.start()),
+                    self.as_mut_ptr().add(self.m_region.end()),
                     self.l_region.len());
             }
             self.m_region.add_end(self.l_region.len());
@@ -255,7 +264,7 @@ impl<T> TRBuffer<T> {
         }
     }
 
-    /// Reserves `len` bytes to be prepended and return a mutable buffer.
+    /// Reserves `len` bytes to be prepended and return a mutable slice of `T`.
     ///
     /// If there is not enough space, reallocates the buffer.
     pub fn reserve_front(&mut self, len: usize) -> &mut [T] {
@@ -304,7 +313,7 @@ impl<T> TRBuffer<T> {
     }
 
 
-    /// Reserves `len` bytes to be appended and return a mutable buffer.
+    /// Reserves `len` bytes to be appended and return a mutable slice of `T`.
     ///
     /// If there is not enough space, reallocates the buffer.
     pub fn reserve_back(&mut self, len: usize) -> &mut [T] {
