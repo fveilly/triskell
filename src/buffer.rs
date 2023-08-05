@@ -201,7 +201,6 @@ impl<T> TRBuffer<T> {
     fn reallocate_front(&mut self, additional: usize) {
         self.reallocate(additional);
 
-        println!("reallocated front {} bytes, capacity is now {}", additional, self.capacity());
         // Move Right Region at the end of the buffer.
         if self.r_region.len() > 0 {
             unsafe {
@@ -217,7 +216,6 @@ impl<T> TRBuffer<T> {
     fn reallocate_back(&mut self, additional: usize) {
         self.reallocate(self.l_region.len() + additional);
 
-        println!("reallocated back {} bytes, capacity is now {}", additional, self.capacity());
         // Move Right Region at the end of the buffer.
         if self.r_region.len() > 0 {
             unsafe {
@@ -313,8 +311,7 @@ impl<T> TRBuffer<T> {
         // to append additional bytes.
         else {
             let space_after_m = self.capacity() - self.m_region.end() - self.r_region.len();
-            println!("capacity={} m_region.end()={} r_region.len()={} space_after_m={space_after_m}",
-                self.capacity(), self.m_region.end(), self.r_region.len());
+
             // There is enough space to append the Main Region
             if space_after_m >= len {
                 self.m_region.end()
@@ -339,8 +336,6 @@ impl<T> TRBuffer<T> {
         if len == 0 {
             return;
         }
-
-        println!("commit() len={len}");
 
         let capacity = self.capacity();
         if let Some(reservation) = self.reservation() {
@@ -444,8 +439,6 @@ impl<T> TRBuffer<T> {
     ///
     /// The next time `read()` is called, it will not include these elements.
     pub fn free_front(&mut self, mut len: usize) {
-        println!("free_back() l_region.len={} m_region.len={} r_region.len={} len={}",
-            self.l_region.len(), self.m_region.len(), self.r_region.len(), len);
         let r_len = self.r_region.len();
         // Free the Right Region
         if len >= r_len {
@@ -484,8 +477,6 @@ impl<T> TRBuffer<T> {
     ///
     /// The next time `read()` is called, it will not include these elements.
     pub fn free_back(&mut self, mut len: usize) {
-        println!("free_back() l_region.len={} m_region.len={} r_region.len={} len={}",
-            self.l_region.len(), self.m_region.len(), self.r_region.len(), len);
         let l_len = self.l_region.len();
         // Free the Left Region
         if len >= l_len {
@@ -526,6 +517,7 @@ impl<T> TRBuffer<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::mem::MaybeUninit;
 
     #[test]
     fn read_front_empty() {
