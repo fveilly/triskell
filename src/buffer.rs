@@ -7,7 +7,7 @@ enum RegionType {
 }
 
 #[derive(Debug)]
-pub struct Reservation {
+pub(crate) struct Reservation {
     start: usize,
     len: usize,
     r_type: RegionType,
@@ -17,16 +17,6 @@ impl Reservation {
     #[inline]
     fn new(start:usize, len: usize, r_type: RegionType) -> Self {
         Reservation { start, len, r_type }
-    }
-
-    #[inline]
-    fn consume(&mut self, len: usize) {
-        if len >= self.len {
-            self.len = 0;
-        }
-        else {
-            self.len -= len;
-        }
     }
 
     #[inline]
@@ -44,6 +34,7 @@ impl Reservation {
         self.start + self.len
     }
 
+    #[cfg(test)]
     #[inline]
     fn len(&self) -> usize {
         self.len
@@ -166,16 +157,19 @@ impl<T> TRBuffer<T> {
         self.allocation_strategy = allocation_strategy;
     }
 
+    #[cfg(test)]
     #[inline]
     pub(crate) fn l_region(&self) -> &Region {
         &self.l_region
     }
 
+    #[cfg(test)]
     #[inline]
     pub(crate) fn m_region(&self) -> &Region {
         &self.m_region
     }
     
+    #[cfg(test)]
     #[inline]
     pub(crate) fn r_region(&self) -> &Region {
         &self.r_region
