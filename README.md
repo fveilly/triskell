@@ -1,6 +1,4 @@
 # triskell
-A tri-partite ring buffer
-
 A tri-partite ring buffer is similar to a circular buffer, but data is inserted in three
 revolving regions of the buffer space. This allows reads to return contiguous
 blocks of memory, even if they span a region that would normally include a
@@ -41,6 +39,23 @@ buffer.free_front(2);
   assert_eq!(block[0], 34);
   assert_eq!(block[1], 7);
 }
+```
+
+## Capacity and reallocation
+
+The capacity of a tri-partite ring buffer is the amount of space allocated for any future elements that will be added
+onto it. If a reservation exceeds its capacity, its capacity will automatically be increased.
+
+There is two allocation strategy:
+* AllocationStrategy::Exact: Reserves the minimum capacity for at least additional more elements to be inserted in the given TRBuffer.
+* AllocationStrategy::AtLeast: Reserves capacity for a least additional more elements to be inserted in the given TRBuffer.
+
+```rust
+use triskell::{TRBuffer, AllocationStrategy};
+
+let mut buffer: TRBuffer<u8> = TRBuffer::new();
+
+buffer.set_allocation_strategy(AllocationStrategy::Exact);
 ```
 
 ## What is the difference with a Bip-Buffer ?

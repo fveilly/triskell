@@ -73,18 +73,33 @@ impl Default for AllocationStrategy {
 /// ```
 /// use triskell::TRBuffer;
 ///
-/// let mut buffer: TRBuffer<u8> = TRBuffer::with_capacity(32);
-/// // Reserve 6 contiguous bytes
-/// let reserved = buffer.reserve_back(6);
-/// // Commit the number of bytes that has been written
-/// buffer.commit(6);
-/// // Read data from the back of the buffer
-/// if let Some(data) = buffer.read_back() {
-///   assert_eq!(data.len(), 6);
+/// // Creates a TRBuffer of u8 and allocates 8 elements.
+/// let mut buffer: TRBuffer<u8> = TRBuffer::with_capacity(8);
+/// {
+///   // Reserves 4 slots at the back for insert
+///   let reserved = buffer.reserve_back(4);
+///   reserved[0] = 2;
+///   reserved[1] = 12;
+///   reserved[2] = 34;
+///   reserved[3] = 7;
 /// }
-/// // Free data starting at the back of the buffer
-/// buffer.free_back(6);
-/// assert_eq!(buffer.len(), 0);
+/// // Stores the values into an available region
+/// buffer.commit(4);
+/// {
+///   // Gets the front data stored in the region as a contiguous block
+///   let block = buffer.read_front().unwrap();
+///   assert_eq!(block[0], 2);
+///   assert_eq!(block[1], 12);
+///   assert_eq!(block[2], 34);
+///   assert_eq!(block[3], 7);
+/// }
+/// // Release the first two front elements of the block
+/// buffer.free_front(2);
+/// {
+///   let block = buffer.read_front().unwrap();
+///   assert_eq!(block[0], 34);
+///   assert_eq!(block[1], 7);
+/// }
 /// ```
 #[derive(Debug, Default)]
 pub struct TRBuffer<T> {
@@ -137,6 +152,7 @@ impl<T> TRBuffer<T> {
         self.buffer.capacity()
     }
 
+    /// Define the allocation strategy.
     #[inline]
     pub fn set_allocation_strategy(&mut self, allocation_strategy: AllocationStrategy) {
         self.allocation_strategy = allocation_strategy;
