@@ -2,27 +2,31 @@ use crate::error::TriskellError;
 use crate::region::Region;
 
 #[derive(Debug, Copy, Clone)]
-enum RegionType {
-    LeftRegion,
-    RightRegion,
+enum ReservationType {
+    Front,
+    Back,
 }
 
 #[derive(Debug)]
 pub(crate) struct Reservation {
     start: usize,
     len: usize,
-    r_type: RegionType,
+    reservation_type: ReservationType,
 }
 
 impl Reservation {
     #[inline]
-    fn new(start: usize, len: usize, r_type: RegionType) -> Self {
-        Reservation { start, len, r_type }
+    fn new(start: usize, len: usize, reservation_type: ReservationType) -> Self {
+        Reservation {
+            start,
+            len,
+            reservation_type,
+        }
     }
 
     #[inline]
-    fn r_type(&self) -> RegionType {
-        self.r_type
+    fn reservation_type(&self) -> ReservationType {
+        self.reservation_type
     }
 
     #[inline]
@@ -315,11 +319,7 @@ impl<T> TRBuffer<T> {
             }
         };
 
-        self.reservation = Some(Reservation::new(
-            reserve_start,
-            len,
-            RegionType::RightRegion,
-        ));
+        self.reservation = Some(Reservation::new(reserve_start, len, ReservationType::Front));
         Ok(&mut self.buffer[reserve_start..reserve_start + len])
     }
 
@@ -362,7 +362,7 @@ impl<T> TRBuffer<T> {
             }
         };
 
-        self.reservation = Some(Reservation::new(reserve_start, len, RegionType::LeftRegion));
+        self.reservation = Some(Reservation::new(reserve_start, len, ReservationType::Back));
         Ok(&mut self.buffer[reserve_start..reserve_start + len])
     }
 
@@ -375,8 +375,8 @@ impl<T> TRBuffer<T> {
         let capacity = self.capacity();
         if let Some(reservation) = self.reservation() {
             let to_commit = std::cmp::min(len, reservation.len);
-            match reservation.r_type() {
-                RegionType::LeftRegion => {
+            match reservation.reservation_type() {
+                ReservationType::Back => {
                     // Initial commit
                     if self.m_region.is_empty() && self.l_region.is_empty() {
                         self.m_region
@@ -391,7 +391,7 @@ impl<T> TRBuffer<T> {
                         self.l_region.add_end(to_commit);
                     }
                 }
-                RegionType::RightRegion => {
+                ReservationType::Front => {
                     // Initial commit
                     if self.m_region.is_empty() && self.r_region.is_empty() {
                         self.m_region
