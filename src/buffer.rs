@@ -42,17 +42,12 @@ impl Reservation {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Default, Debug, PartialEq)]
 pub enum AllocationStrategy {
     Exact,
+    #[default]
     AtLeast,
     NonGrowable,
-}
-
-impl Default for AllocationStrategy {
-    fn default() -> Self {
-        AllocationStrategy::AtLeast
-    }
 }
 
 /// A TRBuffer is similar to a circular buffer, but data is inserted in three revolving
@@ -125,6 +120,7 @@ impl<T> TRBuffer<T> {
     /// Construct a new empty TRBuffer with at least the specified capacity.
     ///
     /// The TRBuffer will be able to hold at least capacity elements without reallocating.
+    #[allow(clippy::uninit_vec)]
     pub fn with_capacity(len: usize) -> Self {
         let mut buffer = Vec::with_capacity(len);
 
@@ -210,10 +206,10 @@ impl<T> TRBuffer<T> {
     fn reallocate(&mut self, additional: usize) -> Result<(), TriskellError> {
         match self.allocation_strategy {
             AllocationStrategy::Exact => {
-                self.buffer.reserve_exact(additional);
+                self.buffer.try_reserve_exact(additional)?;
             },
             AllocationStrategy::AtLeast => {
-                self.buffer.reserve(additional);
+                self.buffer.try_reserve(additional)?;
             },
             AllocationStrategy::NonGrowable => {
                 return Err(TriskellError::NotEnoughMemory);
@@ -229,7 +225,7 @@ impl<T> TRBuffer<T> {
         self.reallocate(additional)?;
 
         // Move Right Region at the end of the buffer.
-        if self.r_region.len() > 0 {
+        if !self.r_region.is_empty() {
             unsafe {
                 std::ptr::copy(
                     self.as_mut_ptr().add(self.r_region.start()),
@@ -246,7 +242,7 @@ impl<T> TRBuffer<T> {
         self.reallocate(additional)?;
 
         // Move Right Region at the end of the buffer.
-        if self.r_region.len() > 0 {
+        if !self.r_region.is_empty() {
             unsafe {
                 std::ptr::copy(
                     self.as_mut_ptr().add(self.r_region.start()),
@@ -256,7 +252,7 @@ impl<T> TRBuffer<T> {
             self.r_region.set(self.capacity() - self.r_region.len(), self.capacity());
         }
         // Append Left Region to Main Region 
-        if self.l_region.len() > 0 {
+        if !self.l_region.is_empty() {
             unsafe {
                 std::ptr::copy_nonoverlapping(
                     self.as_mut_ptr().add(self.l_region.start()),
@@ -374,7 +370,7 @@ impl<T> TRBuffer<T> {
             match reservation.r_type() {
                 RegionType::LeftRegion => {
                     // Initial commit
-                    if self.m_region.len() == 0 && self.l_region.len() == 0 {
+                    if self.m_region.is_empty() && self.l_region.is_empty() {
                         self.m_region.set(reservation.start(), reservation.start() + to_commit);
                     }
                     // Bytes reserved just after Main Region
@@ -388,7 +384,7 @@ impl<T> TRBuffer<T> {
                 },
                 RegionType::RightRegion => {
                     // Initial commit
-                    if self.m_region.len() == 0 && self.r_region.len() == 0 {
+                    if self.m_region.is_empty() && self.r_region.is_empty() {
                         self.m_region.set(reservation.end() - to_commit, reservation.end());
                     }
                     // Bytes reserved just before Main Region
@@ -396,13 +392,11 @@ impl<T> TRBuffer<T> {
                         self.m_region.sub_start(to_commit);
                     }
                     // Increase Right Region
+                    else if self.r_region.is_empty() {
+                        self.r_region.set(capacity - to_commit, capacity);
+                    }
                     else {
-                        if self.r_region.len() == 0 {
-                            self.r_region.set(capacity - to_commit, capacity);
-                        }
-                        else {
-                            self.r_region.sub_start(to_commit);
-                        }
+                        self.r_region.sub_start(to_commit);
                     }
                 },
             }

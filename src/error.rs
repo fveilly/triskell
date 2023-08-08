@@ -1,5 +1,6 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter, Result};
+use std::collections::TryReserveError;
 
 #[derive(Debug, PartialEq)]
 pub enum TriskellError {
@@ -11,6 +12,12 @@ impl Display for TriskellError {
         match self {
             TriskellError::NotEnoughMemory => write!(f, "Not enough memory available"),
         }
+    }
+}
+
+impl From<TryReserveError> for TriskellError {
+    fn from(_: TryReserveError) -> Self {
+        TriskellError::NotEnoughMemory
     }
 }
 
