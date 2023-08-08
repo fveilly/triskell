@@ -16,7 +16,7 @@ use triskell::TRBuffer;
 let mut buffer: TRBuffer<u8> = TRBuffer::with_capacity(8);
 {
   // Reserves 4 slots at the back for insert
-  let reserved = buffer.reserve_back(4);
+  let reserved = buffer.reserve_back(4).unwrap();
   reserved[0] = 2;
   reserved[1] = 12;
   reserved[2] = 34;
@@ -47,9 +47,9 @@ The capacity of a tri-partite ring buffer is the amount of space allocated for a
 onto it. If a reservation exceeds its capacity, its capacity will automatically be increased.
 
 There is two allocation strategy:
-* AllocationStrategy::Exact: Reserves the minimum capacity for at least additional more elements to be inserted in the given TRBuffer.
-* AllocationStrategy::AtLeast: Reserves capacity for at least additional more elements to be inserted in the given TRBuffer.
-
+* **AllocationStrategy::Exact**: Reserves the minimum capacity required to insert a specified number of additional elements.
+* **AllocationStrategy::AtLeast**: With this strategy, capacity is reserved to accommodate at least the specified number of additional elements.
+* **AllocationStrategy::NonGrowable**: If attempting to reserve capacity beyond the buffer's limit, return an error.
 ```rust
 use triskell::{TRBuffer, AllocationStrategy};
 
