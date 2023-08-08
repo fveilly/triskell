@@ -6,13 +6,13 @@ wrap-around in a circular buffer. It's especially useful for APIs requiring
 blocks of contiguous memory, eliminating the need to copy data into an interim
 buffer before use.
 
-Its is heavily inspired by the article of Simon Cooke's [Bip-Buffer][1].
+It is heavily inspired by the article of Simon Cooke's [Bip-Buffer][1].
 
 ## Examples
 ```rust
 use triskell::TRBuffer;
 
-// Creates a TRBuffer of u8 and allocates 8 elements.
+// Creates a TRBuffer of u8 and allocates 8 elements
 let mut buffer: TRBuffer<u8> = TRBuffer::with_capacity(8);
 {
   // Reserves 4 slots at the back for insert
@@ -48,7 +48,7 @@ onto it. If a reservation exceeds its capacity, its capacity will automatically 
 
 There is two allocation strategy:
 * AllocationStrategy::Exact: Reserves the minimum capacity for at least additional more elements to be inserted in the given TRBuffer.
-* AllocationStrategy::AtLeast: Reserves capacity for a least additional more elements to be inserted in the given TRBuffer.
+* AllocationStrategy::AtLeast: Reserves capacity for at least additional more elements to be inserted in the given TRBuffer.
 
 ```rust
 use triskell::{TRBuffer, AllocationStrategy};
@@ -61,6 +61,6 @@ buffer.set_allocation_strategy(AllocationStrategy::Exact);
 ## What is the difference with a Bip-Buffer ?
 
 As its name imply a tri-partite ring buffer use three regions instead of two. This allows to
-push data at the back and/or at the front of the buffer.
+read and write data at the back and/or at the front of the buffer.
 
 [1]: https://www.codeproject.com/articles/3479/the-bip-buffer-the-circular-buffer-with-a-twist

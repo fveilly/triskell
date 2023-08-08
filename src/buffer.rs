@@ -1,4 +1,5 @@
-pub use crate::region::Region;
+use crate::region::Region;
+use crate::error::TriskellError;
 
 #[derive(Debug, Copy, Clone)]
 enum RegionType {
@@ -45,6 +46,7 @@ impl Reservation {
 pub enum AllocationStrategy {
     Exact,
     AtLeast,
+    NonGrowable,
 }
 
 impl Default for AllocationStrategy {
@@ -68,7 +70,7 @@ impl Default for AllocationStrategy {
 /// let mut buffer: TRBuffer<u8> = TRBuffer::with_capacity(8);
 /// {
 ///   // Reserves 4 slots at the back for insert
-///   let reserved = buffer.reserve_back(4);
+///   let reserved = buffer.reserve_back(4).unwrap();
 ///   reserved[0] = 2;
 ///   reserved[1] = 12;
 ///   reserved[2] = 34;
@@ -99,7 +101,7 @@ pub struct TRBuffer<T> {
     l_region: Region,
     // Main Region
     m_region: Region,
-    // Right Regio
+    // Right Region
     r_region: Region,
     allocation_strategy: AllocationStrategy,
     reservation: Option<Reservation>,
@@ -205,20 +207,26 @@ impl<T> TRBuffer<T> {
     }
    
     #[inline]
-    fn reallocate(&mut self, additional: usize) {
-        if self.allocation_strategy == AllocationStrategy::AtLeast {
-            self.buffer.reserve(additional);
-        }
-        else {
-            self.buffer.reserve_exact(additional);
+    fn reallocate(&mut self, additional: usize) -> Result<(), TriskellError> {
+        match self.allocation_strategy {
+            AllocationStrategy::Exact => {
+                self.buffer.reserve_exact(additional);
+            },
+            AllocationStrategy::AtLeast => {
+                self.buffer.reserve(additional);
+            },
+            AllocationStrategy::NonGrowable => {
+                return Err(TriskellError::NotEnoughMemory);
+            },
         }
 
         // SAFETY: new_len is equal to capacity()
         unsafe { self.buffer.set_len(self.buffer.capacity()) };
+        Ok(())
     }
 
-    fn reallocate_front(&mut self, additional: usize) {
-        self.reallocate(additional);
+    fn reallocate_front(&mut self, additional: usize) -> Result<(), TriskellError> {
+        self.reallocate(additional)?;
 
         // Move Right Region at the end of the buffer.
         if self.r_region.len() > 0 {
@@ -230,10 +238,12 @@ impl<T> TRBuffer<T> {
             }
             self.r_region.set(self.capacity() - self.r_region.len(), self.capacity());
         }
+
+        Ok(())
     }
 
-    fn reallocate_back(&mut self, additional: usize) {
-        self.reallocate(self.l_region.len() + additional);
+    fn reallocate_back(&mut self, additional: usize) -> Result<(), TriskellError> {
+        self.reallocate(additional)?;
 
         // Move Right Region at the end of the buffer.
         if self.r_region.len() > 0 {
@@ -256,12 +266,14 @@ impl<T> TRBuffer<T> {
             self.m_region.add_end(self.l_region.len());
             self.l_region.reset();
         }
+
+        Ok(())
     }
 
     /// Reserves `len` bytes to be prepended and return a mutable slice of `T`.
     ///
     /// If there is not enough space, reallocates the buffer.
-    pub fn reserve_front(&mut self, len: usize) -> &mut [T] {
+    pub fn reserve_front(&mut self, len: usize) -> Result<&mut [T], TriskellError> {
         debug_assert!(len > 0);
 
         // Right Region is not empty, it means Main Region is already full.
@@ -274,7 +286,7 @@ impl<T> TRBuffer<T> {
             }
             // No more space, need to allocate more bytes
             else {
-                self.reallocate_front(len);
+                self.reallocate_front(len)?;
                 // TODO: replace by `unchecked_sub` when the API become stable
                 (self.capacity() - self.r_region.len()).wrapping_sub(len)
             }
@@ -294,7 +306,7 @@ impl<T> TRBuffer<T> {
                 
                 // No space available, need to allocate more bytes
                 if space_after_m < len {
-                    self.reallocate_front(len - space_after_m);
+                    self.reallocate_front(len - space_after_m)?;
                 }
                 
                 // TODO: replace by `unchecked_sub` when the API become stable
@@ -303,14 +315,14 @@ impl<T> TRBuffer<T> {
         };
 
         self.reservation = Some(Reservation::new(reserve_start, len, RegionType::RightRegion));
-        &mut self.buffer[reserve_start..reserve_start + len]
+        Ok(&mut self.buffer[reserve_start..reserve_start + len])
     }
 
 
     /// Reserves `len` bytes to be appended and return a mutable slice of `T`.
     ///
     /// If there is not enough space, reallocates the buffer.
-    pub fn reserve_back(&mut self, len: usize) -> &mut [T] {
+    pub fn reserve_back(&mut self, len: usize) -> Result<&mut [T], TriskellError> {
         debug_assert!(len > 0);
 
         // Left Region is not empty, it means Main Region is already full.
@@ -322,7 +334,7 @@ impl<T> TRBuffer<T> {
             }
             // No more space, need to allocate more bytes
             else {
-                self.reallocate_back(len);
+                self.reallocate_back(len)?;
                 self.m_region.end()
             }
         }
@@ -341,13 +353,13 @@ impl<T> TRBuffer<T> {
             }
             // No more space, need to allocate more bytes
             else {
-                self.reallocate_back(len - space_after_m);
+                self.reallocate_back(len - space_after_m)?;
                 self.m_region.end()
             }
         };
 
         self.reservation = Some(Reservation::new(reserve_start, len, RegionType::LeftRegion));
-        &mut self.buffer[reserve_start..reserve_start + len]
+        Ok(&mut self.buffer[reserve_start..reserve_start + len])
     }
 
     /// Commits the data in the reservation, allowing it to be read later
@@ -530,7 +542,6 @@ impl<T> TRBuffer<T> {
             self.l_region.sub_end(len);
         }
     }
-
 }
 
 #[cfg(test)]
@@ -553,9 +564,16 @@ mod tests {
     }
 
     #[test]
+    fn allocation_non_growable() {
+        let mut buffer: TRBuffer<u8> = TRBuffer::with_capacity(3);
+        buffer.set_allocation_strategy(AllocationStrategy::NonGrowable);
+        assert_eq!(buffer.reserve_back(4), Err(TriskellError::NotEnoughMemory));
+    }
+
+    #[test]
     fn read_front_uncommited() {
         let mut buffer: TRBuffer<u8> = TRBuffer::with_capacity(3);
-        buffer.reserve_back(2);
+        buffer.reserve_back(2).unwrap();
         let block = buffer.read_front();
         assert!(block.is_none());
     }
@@ -563,7 +581,7 @@ mod tests {
     #[test]
     fn read_back_uncommited() {
         let mut buffer: TRBuffer<u8> = TRBuffer::with_capacity(3);
-        buffer.reserve_front(2);
+        buffer.reserve_front(2).unwrap();
         let block = buffer.read_back();
         assert!(block.is_none());
     }
@@ -571,14 +589,14 @@ mod tests {
     #[test]
     fn initial_allocation_front() {
         let mut buffer: TRBuffer<u8> = TRBuffer::new();
-        let reserved = buffer.reserve_front(4);
+        let reserved = buffer.reserve_front(4).unwrap();
         assert_eq!(reserved.len(), 4);
     }
 
     #[test]
     fn initial_allocation_back() {
         let mut buffer: TRBuffer<u8> = TRBuffer::new();
-        let reserved = buffer.reserve_back(4);
+        let reserved = buffer.reserve_back(4).unwrap();
         assert_eq!(reserved.len(), 4);
     }
 
@@ -586,7 +604,7 @@ mod tests {
     fn reserve_greater_len_front() {
         let mut buffer: TRBuffer<u8> = TRBuffer::with_capacity(3);
         assert!(buffer.reservation().is_none());
-        let reserved = buffer.reserve_front(4);
+        let reserved = buffer.reserve_front(4).unwrap();
         assert_eq!(reserved.len(), 4);
         assert_eq!(buffer.reservation().unwrap().len(), 4);
     }
@@ -595,26 +613,56 @@ mod tests {
     fn reserve_greater_len_back() {
         let mut buffer: TRBuffer<u8> = TRBuffer::with_capacity(3);
         assert!(buffer.reservation().is_none());
-        let reserved = buffer.reserve_back(4);
+        let reserved = buffer.reserve_back(4).unwrap();
         assert_eq!(reserved.len(), 4);
         assert_eq!(buffer.reservation().unwrap().len(), 4);
     }
 
     #[test]
+    fn reserve_two_times() {
+        let mut buffer: TRBuffer<MaybeUninit<u8>> = TRBuffer::with_capacity(3);
+        assert!(buffer.reservation().is_none());
+        {
+            // [ 1 9 c d ]
+            let reserved = buffer.reserve_back(4).unwrap();
+            reserved[0].write(0x1);
+            reserved[1].write(0x9);
+            reserved[2].write(0xc);
+            reserved[2].write(0xd);
+        }
+        assert_eq!(buffer.reservation().unwrap().len(), 4);
+        {
+            // [ a b e ]
+            let reserved = buffer.reserve_front(3).unwrap();
+            reserved[0].write(0xa);
+            reserved[1].write(0xb);
+            reserved[2].write(0xe);
+        }
+        assert_eq!(buffer.reservation().unwrap().len(), 3);
+
+        buffer.commit(3);
+        let block = buffer.read_back().unwrap();
+        assert_eq!(block.len(), 3);
+        assert_eq!(unsafe { block[0].assume_init() }, 0xa);
+        assert_eq!(unsafe { block[1].assume_init() }, 0xb);
+        assert_eq!(unsafe { block[2].assume_init() }, 0xe);
+    }
+
+    #[test]
     fn reserve_full_front() {
         let mut buffer: TRBuffer<u8> = TRBuffer::with_capacity(4);
-        buffer.reserve_back(4);
+        buffer.reserve_back(4).unwrap();
         buffer.commit(4);
-        let reserved = buffer.reserve_front(1);
+        let reserved = buffer.reserve_front(1).unwrap();
         assert_eq!(reserved.len(), 1);
     }
 
     #[test]
     fn reserve_full_back() {
         let mut buffer: TRBuffer<u8> = TRBuffer::with_capacity(4);
-        buffer.reserve_front(4);
+        buffer.reserve_front(4).unwrap();
         buffer.commit(4);
-        let reserved = buffer.reserve_back(1);
+        let reserved = buffer.reserve_back(1).unwrap();
         assert_eq!(reserved.len(), 1);
     }
 
@@ -624,7 +672,7 @@ mod tests {
         buffer.set_allocation_strategy(AllocationStrategy::Exact);
         {
             // [ 1 9 c ]
-            let reserved = buffer.reserve_back(3);
+            let reserved = buffer.reserve_back(3).unwrap();
             reserved[0].write(0x1);
             reserved[1].write(0x9);
             reserved[2].write(0xc);
@@ -643,7 +691,7 @@ mod tests {
         {
             // [ 1 9 c . . . ]
             // [ 1 9 c 2 a 3 ]
-            let reserved = buffer.reserve_front(3);
+            let reserved = buffer.reserve_front(3).unwrap();
             reserved[0].write(0x2);
             reserved[1].write(0xa);
             reserved[2].write(0x3);
@@ -663,7 +711,7 @@ mod tests {
             // [ 1 9 c 2 a 3 . . . ]
             // [ 1 9 c . . . 2 a 3 ]
             // [ 1 9 c a b c 2 a 3 ]
-            let reserved = buffer.reserve_back(3);
+            let reserved = buffer.reserve_back(3).unwrap();
             reserved[0].write(0xa);
             reserved[1].write(0xb);
             reserved[2].write(0xc);
@@ -696,7 +744,7 @@ mod tests {
         
         {
             // [ . . . a b c 1 2 . ]
-            let reserved = buffer.reserve_back(2);
+            let reserved = buffer.reserve_back(2).unwrap();
             reserved[0].write(0x1);
             reserved[1].write(0x2);
         }
@@ -705,7 +753,7 @@ mod tests {
 
         {
             // [ d e . a b c 1 2 . ]
-            let reserved = buffer.reserve_back(2);
+            let reserved = buffer.reserve_back(2).unwrap();
             reserved[0].write(0xd);
             reserved[1].write(0xe);
         }
@@ -738,7 +786,7 @@ mod tests {
         buffer.set_allocation_strategy(AllocationStrategy::Exact);
         {
             // [ 1 9 c ]
-            let reserved = buffer.reserve_front(3);
+            let reserved = buffer.reserve_front(3).unwrap();
             reserved[0].write(0x1);
             reserved[1].write(0x9);
             reserved[2].write(0xc);
@@ -757,7 +805,7 @@ mod tests {
         {
             // [ 1 9 c . . . ]
             // [ 1 9 c 2 a 3 ]
-            let reserved = buffer.reserve_back(3);
+            let reserved = buffer.reserve_back(3).unwrap();
             reserved[0].write(0x2);
             reserved[1].write(0xa);
             reserved[2].write(0x3);
@@ -778,7 +826,7 @@ mod tests {
         {
             // [ 1 9 c 2 a 3 . . . ]
             // [ 1 9 c 2 a 3 a b c ]
-            let reserved = buffer.reserve_front(3);
+            let reserved = buffer.reserve_front(3).unwrap();
             reserved[0].write(0xa);
             reserved[1].write(0xb);
             reserved[2].write(0xc);
@@ -805,7 +853,7 @@ mod tests {
         {
             // [ . . . . . . a b . ]
             // [ . . . 1 2 3 a b . ]
-            let reserved = buffer.reserve_front(3);
+            let reserved = buffer.reserve_front(3).unwrap();
             reserved[0].write(0x1);
             reserved[1].write(0x2);
             reserved[2].write(0x3);
@@ -816,7 +864,7 @@ mod tests {
         {
             // [ . . . 1 2 3 a b . ]
             // [ . 5 6 1 2 3 a b . ]
-            let reserved = buffer.reserve_front(2);
+            let reserved = buffer.reserve_front(2).unwrap();
             reserved[0].write(0x4);
             reserved[1].write(0x5);
         }
@@ -838,7 +886,7 @@ mod tests {
         {
             // [ . 4 5 1 2 3 a b . . . ]
             // [ . 4 5 1 2 3 a b d e f ]
-            let reserved = buffer.reserve_front(3);
+            let reserved = buffer.reserve_front(3).unwrap();
             reserved[0].write(0xd);
             reserved[1].write(0xe);
             reserved[2].write(0xf);
@@ -853,7 +901,7 @@ mod tests {
             // [ . 4 5 1 2 3 a b c d e f . ]
             // [ . 4 5 1 2 3 a b c . d e f ]
             // [ . 4 5 1 2 3 a b c 7 d e f ]
-            let reserved = buffer.reserve_front(1);
+            let reserved = buffer.reserve_front(1).unwrap();
             reserved[0].write(0x7);
         }
         
@@ -888,7 +936,7 @@ mod tests {
     fn commit_and_read_front() {
         let mut buffer: TRBuffer<MaybeUninit<u8>> = TRBuffer::with_capacity(4);
         {
-            let reserved = buffer.reserve_front(3);
+            let reserved = buffer.reserve_front(3).unwrap();
             reserved[0].write(0x1);
             reserved[1].write(0x9);
             reserved[2].write(0xc);
@@ -907,7 +955,7 @@ mod tests {
         let mut buffer: TRBuffer<MaybeUninit<u8>> = TRBuffer::with_capacity(4);
         {
             // [ 1 9 c ]
-            let reserved = buffer.reserve_back(3);
+            let reserved = buffer.reserve_back(3).unwrap();
             reserved[0].write(0x1);
             reserved[1].write(0x9);
             reserved[2].write(0xc);
@@ -926,7 +974,7 @@ mod tests {
         let mut buffer: TRBuffer<MaybeUninit<u8>> = TRBuffer::with_capacity(4);
         {
             // [ 1 9 c f ]
-            let reserved = buffer.reserve_front(4);
+            let reserved = buffer.reserve_front(4).unwrap();
             reserved[0].write(0x1);
             reserved[1].write(0x9);
             reserved[2].write(0xc);
@@ -953,7 +1001,7 @@ mod tests {
         let mut buffer: TRBuffer<MaybeUninit<u8>> = TRBuffer::with_capacity(4);
         {
             // [ 1 9 c f ]
-            let reserved = buffer.reserve_back(4);
+            let reserved = buffer.reserve_back(4).unwrap();
             reserved[0].write(0x1);
             reserved[1].write(0x9);
             reserved[2].write(0xc);
@@ -980,7 +1028,7 @@ mod tests {
         let mut buffer: TRBuffer<MaybeUninit<u8>> = TRBuffer::with_capacity(4);
         {
             // [ 1 9 c f ]
-            let reserved = buffer.reserve_back(4);
+            let reserved = buffer.reserve_back(4).unwrap();
             reserved[0].write(0x1);
             reserved[1].write(0x9);
             reserved[2].write(0xc);
@@ -993,7 +1041,7 @@ mod tests {
         {
             // [ . . c f . . . . ]
             // [ . . c f 2 3 4 5 ]
-            let reserved = buffer.reserve_front(4);
+            let reserved = buffer.reserve_front(4).unwrap();
             reserved[0].write(0x2);
             reserved[1].write(0x3);
             reserved[2].write(0x4);
@@ -1028,7 +1076,7 @@ mod tests {
         buffer.set_allocation_strategy(AllocationStrategy::Exact);
         {
             // [ 1 9 c f ]
-            let reserved = buffer.reserve_front(4);
+            let reserved = buffer.reserve_front(4).unwrap();
             reserved[0].write(0x1);
             reserved[1].write(0x9);
             reserved[2].write(0xc);
@@ -1043,7 +1091,7 @@ mod tests {
         {
             // [ 1 9 . . . . ]
             // [ 1 9 2 3 4 5 ]
-            let reserved = buffer.reserve_back(4);
+            let reserved = buffer.reserve_back(4).unwrap();
             reserved[0].write(0x2);
             reserved[1].write(0x3);
             reserved[2].write(0x4);
@@ -1077,7 +1125,7 @@ mod tests {
     fn reserve_complex_back() {
         let mut buffer: TRBuffer<MaybeUninit<u8>> = TRBuffer::with_capacity(8);
         {
-            let reserved = buffer.reserve_back(4);
+            let reserved = buffer.reserve_back(4).unwrap();
             // [ 1 9 c f ]
             reserved[0].write(0x1);
             reserved[1].write(0x9);
@@ -1086,7 +1134,7 @@ mod tests {
         }
         buffer.commit(4);
         {
-            let reserved = buffer.reserve_front(2);
+            let reserved = buffer.reserve_front(2).unwrap();
             // [ 1 9 c f . . ]
             // [ 1 9 c f a b ]
             reserved[0].write(0xa);
@@ -1128,7 +1176,7 @@ mod tests {
     fn reserve_complex_front() {
         let mut buffer: TRBuffer<MaybeUninit<u8>> = TRBuffer::with_capacity(8);
         {
-            let reserved = buffer.reserve_back(6);
+            let reserved = buffer.reserve_back(6).unwrap();
             // [ 1 9 c f 2 3 ]
             reserved[0].write(0x1);
             reserved[1].write(0x9);
@@ -1149,7 +1197,7 @@ mod tests {
             assert_eq!(unsafe { block[5].assume_init() }, 0x3);
         }
         {
-            let reserved = buffer.reserve_front(2);
+            let reserved = buffer.reserve_front(2).unwrap();
             // [ 1 9 c f 2 3 . . ]
             // [ 1 9 c f 2 3 a b ]
             reserved[0].write(0xa);
@@ -1175,7 +1223,7 @@ mod tests {
             assert_eq!(unsafe { block[3].assume_init() }, 0xf);
         }
         {
-            let reserved = buffer.reserve_front(2);
+            let reserved = buffer.reserve_front(2).unwrap();
             // [ 1 9 c f 1 2 a b ]
             reserved[0].write(0x1);
             reserved[1].write(0x2);
@@ -1196,7 +1244,7 @@ mod tests {
     fn clear() {
         let mut buffer: TRBuffer<MaybeUninit<u8>> = TRBuffer::with_capacity(4);
         {
-            let reserved = buffer.reserve_back(4);
+            let reserved = buffer.reserve_back(4).unwrap();
             // [ 1 9 c f ]
             reserved[0].write(0x1);
             reserved[1].write(0x9);
