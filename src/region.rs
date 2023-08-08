@@ -7,10 +7,7 @@ pub struct Region {
 impl Region {
     #[inline]
     pub(crate) fn new() -> Self {
-        Region {
-            start: 0,
-            end: 0,
-        }
+        Region { start: 0, end: 0 }
     }
 
     #[inline]
@@ -25,9 +22,7 @@ impl Region {
 
     #[inline]
     pub(crate) fn set(&mut self, start: usize, end: usize) {
-        debug_assert!(start <= end,
-                      "set start={} end={}",
-                      start, end);
+        debug_assert!(start <= end, "set start={} end={}", start, end);
         self.start = start;
         self.end = end;
     }
@@ -40,17 +35,25 @@ impl Region {
 
     #[inline]
     pub(crate) fn add_start(&mut self, off: usize) {
-        debug_assert!(self.start + off <= self.end,
-                      "add start [{}-{}] offset={}",
-                      self.start, self.end, off);
+        debug_assert!(
+            self.start + off <= self.end,
+            "add start [{}-{}] offset={}",
+            self.start,
+            self.end,
+            off
+        );
         self.start += off;
     }
 
     #[inline]
     pub(crate) fn sub_start(&mut self, off: usize) {
-        debug_assert!(self.start >= off,
-                      "sub start [{}-{}] offset={}",
-                      self.start, self.end, off);
+        debug_assert!(
+            self.start >= off,
+            "sub start [{}-{}] offset={}",
+            self.start,
+            self.end,
+            off
+        );
         self.start -= off;
     }
 
@@ -61,9 +64,13 @@ impl Region {
 
     #[inline]
     pub(crate) fn sub_end(&mut self, off: usize) {
-        debug_assert!(self.end >= self.start,
-                      "sub end [{}-{}] offset={}",
-                      self.start, self.end, off);
+        debug_assert!(
+            self.end >= self.start,
+            "sub end [{}-{}] offset={}",
+            self.start,
+            self.end,
+            off
+        );
         self.end -= off;
     }
 
@@ -77,7 +84,7 @@ impl Region {
     pub(crate) fn is_empty(&self) -> bool {
         self.end == self.start
     }
-    
+
     #[inline]
     pub(crate) fn reset(&mut self) {
         self.start = 0;

@@ -1,6 +1,6 @@
+use std::collections::TryReserveError;
 use std::error::Error;
 use std::fmt::{Display, Formatter, Result};
-use std::collections::TryReserveError;
 
 #[derive(Debug, PartialEq)]
 pub enum TriskellError {

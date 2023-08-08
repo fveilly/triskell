@@ -1,5 +1,5 @@
-use crate::region::Region;
 use crate::error::TriskellError;
+use crate::region::Region;
 
 #[derive(Debug, Copy, Clone)]
 enum RegionType {
@@ -16,7 +16,7 @@ pub(crate) struct Reservation {
 
 impl Reservation {
     #[inline]
-    fn new(start:usize, len: usize, r_type: RegionType) -> Self {
+    fn new(start: usize, len: usize, r_type: RegionType) -> Self {
         Reservation { start, len, r_type }
     }
 
@@ -166,20 +166,20 @@ impl<T> TRBuffer<T> {
     pub(crate) fn m_region(&self) -> &Region {
         &self.m_region
     }
-    
+
     #[cfg(test)]
     #[inline]
     pub(crate) fn r_region(&self) -> &Region {
         &self.r_region
     }
-    
+
     /// Returns `true` if the TRBuffer contains no elements.
     #[inline]
     pub fn is_empty(&self) -> bool {
-        self.reservation.is_none() &&
-        self.l_region.is_empty() &&
-        self.m_region.is_empty() &&
-        self.r_region.is_empty()
+        self.reservation.is_none()
+            && self.l_region.is_empty()
+            && self.m_region.is_empty()
+            && self.r_region.is_empty()
     }
 
     #[inline]
@@ -201,19 +201,19 @@ impl<T> TRBuffer<T> {
         self.r_region.reset();
         self.reservation = None;
     }
-   
+
     #[inline]
     fn reallocate(&mut self, additional: usize) -> Result<(), TriskellError> {
         match self.allocation_strategy {
             AllocationStrategy::Exact => {
                 self.buffer.try_reserve_exact(additional)?;
-            },
+            }
             AllocationStrategy::AtLeast => {
                 self.buffer.try_reserve(additional)?;
-            },
+            }
             AllocationStrategy::NonGrowable => {
                 return Err(TriskellError::NotEnoughMemory);
-            },
+            }
         }
 
         // SAFETY: new_len is equal to capacity()
@@ -230,9 +230,11 @@ impl<T> TRBuffer<T> {
                 std::ptr::copy(
                     self.as_mut_ptr().add(self.r_region.start()),
                     self.as_mut_ptr().add(self.capacity() - self.r_region.len()),
-                    self.r_region.len());
+                    self.r_region.len(),
+                );
             }
-            self.r_region.set(self.capacity() - self.r_region.len(), self.capacity());
+            self.r_region
+                .set(self.capacity() - self.r_region.len(), self.capacity());
         }
 
         Ok(())
@@ -247,17 +249,20 @@ impl<T> TRBuffer<T> {
                 std::ptr::copy(
                     self.as_mut_ptr().add(self.r_region.start()),
                     self.as_mut_ptr().add(self.capacity() - self.r_region.len()),
-                    self.r_region.len());
+                    self.r_region.len(),
+                );
             }
-            self.r_region.set(self.capacity() - self.r_region.len(), self.capacity());
+            self.r_region
+                .set(self.capacity() - self.r_region.len(), self.capacity());
         }
-        // Append Left Region to Main Region 
+        // Append Left Region to Main Region
         if !self.l_region.is_empty() {
             unsafe {
                 std::ptr::copy_nonoverlapping(
                     self.as_mut_ptr().add(self.l_region.start()),
                     self.as_mut_ptr().add(self.m_region.end()),
-                    self.l_region.len());
+                    self.l_region.len(),
+                );
             }
             self.m_region.add_end(self.l_region.len());
             self.l_region.reset();
@@ -299,21 +304,24 @@ impl<T> TRBuffer<T> {
             // Need to reserve in the Right Region
             else {
                 let space_after_m = self.capacity() - self.m_region.end();
-                
+
                 // No space available, need to allocate more bytes
                 if space_after_m < len {
                     self.reallocate_front(len - space_after_m)?;
                 }
-                
+
                 // TODO: replace by `unchecked_sub` when the API become stable
                 self.capacity().wrapping_sub(len)
             }
         };
 
-        self.reservation = Some(Reservation::new(reserve_start, len, RegionType::RightRegion));
+        self.reservation = Some(Reservation::new(
+            reserve_start,
+            len,
+            RegionType::RightRegion,
+        ));
         Ok(&mut self.buffer[reserve_start..reserve_start + len])
     }
-
 
     /// Reserves `len` bytes to be appended and return a mutable slice of `T`.
     ///
@@ -371,7 +379,8 @@ impl<T> TRBuffer<T> {
                 RegionType::LeftRegion => {
                     // Initial commit
                     if self.m_region.is_empty() && self.l_region.is_empty() {
-                        self.m_region.set(reservation.start(), reservation.start() + to_commit);
+                        self.m_region
+                            .set(reservation.start(), reservation.start() + to_commit);
                     }
                     // Bytes reserved just after Main Region
                     else if reservation.start() == self.m_region.end() {
@@ -381,11 +390,12 @@ impl<T> TRBuffer<T> {
                     else {
                         self.l_region.add_end(to_commit);
                     }
-                },
+                }
                 RegionType::RightRegion => {
                     // Initial commit
                     if self.m_region.is_empty() && self.r_region.is_empty() {
-                        self.m_region.set(reservation.end() - to_commit, reservation.end());
+                        self.m_region
+                            .set(reservation.end() - to_commit, reservation.end());
                     }
                     // Bytes reserved just before Main Region
                     else if reservation.end() == self.m_region.start() {
@@ -394,11 +404,10 @@ impl<T> TRBuffer<T> {
                     // Increase Right Region
                     else if self.r_region.is_empty() {
                         self.r_region.set(capacity - to_commit, capacity);
-                    }
-                    else {
+                    } else {
                         self.r_region.sub_start(to_commit);
                     }
-                },
+                }
             }
         }
         self.reservation = None;
@@ -410,19 +419,17 @@ impl<T> TRBuffer<T> {
     /// Must called `free_front()` to free data.
     #[inline]
     pub fn read_front(&self) -> Option<&[T]> {
-        self.read_front_indexes().map(|(start, end)| self.get(start, end))
+        self.read_front_indexes()
+            .map(|(start, end)| self.get(start, end))
     }
     pub fn read_front_indexes(&self) -> Option<(usize, usize)> {
         if !self.r_region.is_empty() {
             Some((self.r_region.start(), self.r_region.end()))
-        }
-        else if !self.m_region.is_empty() {
+        } else if !self.m_region.is_empty() {
             Some((self.m_region.start(), self.m_region.end()))
-        }
-        else if !self.l_region.is_empty() {
+        } else if !self.l_region.is_empty() {
             Some((self.l_region.start(), self.l_region.end()))
-        }
-        else {
+        } else {
             None
         }
     }
@@ -433,19 +440,17 @@ impl<T> TRBuffer<T> {
     /// Must called `free_back()` to free data.
     #[inline]
     pub fn read_back(&self) -> Option<&[T]> {
-        self.read_back_indexes().map(|(start, end)| self.get(start, end))
+        self.read_back_indexes()
+            .map(|(start, end)| self.get(start, end))
     }
     pub fn read_back_indexes(&self) -> Option<(usize, usize)> {
         if !self.l_region.is_empty() {
             Some((self.l_region.start(), self.l_region.end()))
-        }
-        else if !self.m_region.is_empty() { 
+        } else if !self.m_region.is_empty() {
             Some((self.m_region.start(), self.m_region.end()))
-        }
-        else if !self.r_region.is_empty() {
+        } else if !self.r_region.is_empty() {
             Some((self.r_region.start(), self.r_region.end()))
-        }
-        else {
+        } else {
             None
         }
     }
@@ -479,8 +484,7 @@ impl<T> TRBuffer<T> {
                 if self.l_region.len() > len {
                     self.l_region.add_start(len);
                     self.m_region.set_region(&self.l_region);
-                }
-                else {
+                } else {
                     self.m_region.reset();
                 }
 
@@ -517,8 +521,7 @@ impl<T> TRBuffer<T> {
                 if self.r_region.len() > len {
                     self.r_region.sub_end(len);
                     self.m_region.set_region(&self.r_region);
-                }
-                else {
+                } else {
                     self.m_region.reset();
                 }
 
@@ -671,7 +674,7 @@ mod tests {
             reserved[1].write(0x9);
             reserved[2].write(0xc);
         }
-        
+
         assert_eq!(buffer.len(), 0);
         assert_eq!(buffer.capacity(), 3);
         buffer.commit(3);
@@ -681,7 +684,7 @@ mod tests {
         assert_eq!(unsafe { block[0].assume_init() }, 0x1);
         assert_eq!(unsafe { block[1].assume_init() }, 0x9);
         assert_eq!(unsafe { block[2].assume_init() }, 0xc);
-        
+
         {
             // [ 1 9 c . . . ]
             // [ 1 9 c 2 a 3 ]
@@ -710,7 +713,7 @@ mod tests {
             reserved[1].write(0xb);
             reserved[2].write(0xc);
         }
-        
+
         assert_eq!(buffer.capacity(), 9);
         buffer.commit(3);
         assert_eq!(buffer.m_region().len(), 6);
@@ -726,7 +729,7 @@ mod tests {
 
         // [ . . . a b c . . . ]
         buffer.free_front(6);
-        
+
         assert_eq!(buffer.capacity(), 9);
         assert_eq!(buffer.m_region().len(), 3);
         assert_eq!(buffer.r_region().len(), 0);
@@ -735,14 +738,14 @@ mod tests {
         assert_eq!(unsafe { block[0].assume_init() }, 0xa);
         assert_eq!(unsafe { block[1].assume_init() }, 0xb);
         assert_eq!(unsafe { block[2].assume_init() }, 0xc);
-        
+
         {
             // [ . . . a b c 1 2 . ]
             let reserved = buffer.reserve_back(2).unwrap();
             reserved[0].write(0x1);
             reserved[1].write(0x2);
         }
-     
+
         buffer.commit(2);
 
         {
@@ -764,7 +767,7 @@ mod tests {
         // [ d e . . . . . . . ]
         buffer.free_front(2);
         buffer.free_front(3);
-        
+
         assert_eq!(buffer.capacity(), 9);
         assert_eq!(buffer.m_region().len(), 2);
         assert_eq!(buffer.l_region().len(), 0);
@@ -785,7 +788,7 @@ mod tests {
             reserved[1].write(0x9);
             reserved[2].write(0xc);
         }
-        
+
         assert_eq!(buffer.len(), 0);
         assert_eq!(buffer.capacity(), 3);
         buffer.commit(3);
@@ -795,7 +798,7 @@ mod tests {
         assert_eq!(unsafe { block[0].assume_init() }, 0x1);
         assert_eq!(unsafe { block[1].assume_init() }, 0x9);
         assert_eq!(unsafe { block[2].assume_init() }, 0xc);
-        
+
         {
             // [ 1 9 c . . . ]
             // [ 1 9 c 2 a 3 ]
@@ -825,7 +828,7 @@ mod tests {
             reserved[1].write(0xb);
             reserved[2].write(0xc);
         }
-        
+
         assert_eq!(buffer.capacity(), 9);
         buffer.commit(3);
         assert_eq!(buffer.m_region().len(), 6);
@@ -843,7 +846,7 @@ mod tests {
         assert_eq!(block.len(), 2);
         assert_eq!(unsafe { block[0].assume_init() }, 0xa);
         assert_eq!(unsafe { block[1].assume_init() }, 0xb);
-       
+
         {
             // [ . . . . . . a b . ]
             // [ . . . 1 2 3 a b . ]
@@ -852,7 +855,7 @@ mod tests {
             reserved[1].write(0x2);
             reserved[2].write(0x3);
         }
-        
+
         assert_eq!(buffer.capacity(), 9);
         buffer.commit(3);
         {
@@ -862,7 +865,7 @@ mod tests {
             reserved[0].write(0x4);
             reserved[1].write(0x5);
         }
-        
+
         assert_eq!(buffer.capacity(), 9);
         buffer.commit(3);
         assert_eq!(buffer.m_region().len(), 7);
@@ -885,12 +888,12 @@ mod tests {
             reserved[1].write(0xe);
             reserved[2].write(0xf);
         }
-    
+
         assert_eq!(buffer.capacity(), 11);
         buffer.commit(3);
         assert_eq!(buffer.m_region().len(), 7);
         assert_eq!(buffer.r_region().len(), 3);
-    
+
         {
             // [ . 4 5 1 2 3 a b c d e f . ]
             // [ . 4 5 1 2 3 a b c . d e f ]
@@ -898,7 +901,7 @@ mod tests {
             let reserved = buffer.reserve_front(1).unwrap();
             reserved[0].write(0x7);
         }
-        
+
         assert_eq!(buffer.capacity(), 12);
         buffer.commit(1);
         assert_eq!(buffer.m_region().len(), 7);
@@ -912,7 +915,7 @@ mod tests {
 
         buffer.free_front(2);
         buffer.free_front(2);
-        
+
         assert_eq!(buffer.m_region().len(), 7);
         assert_eq!(buffer.r_region().len(), 0);
         let block = buffer.read_front().unwrap();
@@ -1050,7 +1053,7 @@ mod tests {
             assert_eq!(unsafe { block[0].assume_init() }, 0x4);
             assert_eq!(unsafe { block[1].assume_init() }, 0x5);
         }
-        
+
         // [ . . c f . . . . ]
         buffer.free_front(2);
         {
@@ -1165,7 +1168,6 @@ mod tests {
         }
     }
 
-
     #[test]
     fn reserve_complex_front() {
         let mut buffer: TRBuffer<MaybeUninit<u8>> = TRBuffer::with_capacity(8);
@@ -1204,7 +1206,7 @@ mod tests {
             assert_eq!(unsafe { block[0].assume_init() }, 0xa);
             assert_eq!(unsafe { block[1].assume_init() }, 0xb);
         }
-        
+
         // [ 1 9 c f . .  a b ]
         buffer.free_back(2);
         assert_eq!(buffer.capacity(), 8);
