@@ -43,12 +43,9 @@ buffer.free_front(2);
 
 ## Capacity and reallocation
 
-If a reservation exceeds the buffer capacity, depending on the choosen allocation strategy new space will be allocated or
-an error is returned if the allocation failed.
+If a reservation exceeds the buffer capacity, the chosen allocation strategy will determine whether new space is allocated or if
+an error is returned.
 
-
-
-There are three allocation strategies:
 * **AllocationStrategy::Exact**: Reserves the minimum capacity required to insert a specified number of additional elements.
 * **AllocationStrategy::AtLeast (default)**: With this strategy, capacity is reserved to accommodate at least the specified number of additional elements.
 * **AllocationStrategy::NonGrowable**: If attempting to reserve capacity beyond the buffer's limit, return an error.
