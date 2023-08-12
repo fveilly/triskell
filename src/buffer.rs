@@ -1,5 +1,4 @@
 use crate::error::TriskellError;
-use crate::region::Region;
 
 #[derive(Debug, Copy, Clone)]
 enum ReservationType {
@@ -96,12 +95,13 @@ pub enum AllocationStrategy {
 #[derive(Debug, Default)]
 pub struct TRBuffer<T> {
     buffer: Vec<T>,
-    // Left Region
-    l_region: Region,
-    // Main Region
-    m_region: Region,
-    // Right Region
-    r_region: Region,
+    // Left region length
+    left_region_len: usize,
+    // Right region length
+    right_region_len: usize,
+    // Main region boundaries
+    start: usize,
+    end: usize,
     allocation_strategy: AllocationStrategy,
     reservation: Option<Reservation>,
 }
@@ -113,9 +113,10 @@ impl<T> TRBuffer<T> {
     pub fn new() -> Self {
         TRBuffer {
             buffer: Vec::new(),
-            l_region: Default::default(),
-            m_region: Default::default(),
-            r_region: Default::default(),
+            left_region_len: 0,
+            right_region_len: 0,
+            start: 0,
+            end: 0,
             allocation_strategy: AllocationStrategy::default(),
             reservation: None,
         }
@@ -133,9 +134,10 @@ impl<T> TRBuffer<T> {
 
         TRBuffer {
             buffer,
-            l_region: Default::default(),
-            m_region: Default::default(),
-            r_region: Default::default(),
+            left_region_len: 0,
+            right_region_len: 0,
+            start: 0,
+            end: 0,
             allocation_strategy: AllocationStrategy::default(),
             reservation: None,
         }
@@ -159,33 +161,66 @@ impl<T> TRBuffer<T> {
         self.allocation_strategy = allocation_strategy;
     }
 
-    #[cfg(test)]
     #[inline]
-    pub(crate) fn l_region(&self) -> &Region {
-        &self.l_region
+    fn left_region_end(&self) -> usize {
+        self.left_region_len
     }
 
-    #[cfg(test)]
     #[inline]
-    pub(crate) fn m_region(&self) -> &Region {
-        &self.m_region
+    fn right_region_start(&self) -> usize {
+        self.capacity() - self.right_region_len
     }
 
-    #[cfg(test)]
     #[inline]
-    pub(crate) fn r_region(&self) -> &Region {
-        &self.r_region
+    fn left_region_is_empty(&self) -> bool {
+        self.left_region_len == 0
+    }
+
+    #[inline]
+    fn right_region_is_empty(&self) -> bool {
+        self.right_region_len == 0
+    }
+
+    #[inline]
+    fn main_region_is_empty(&self) -> bool {
+        self.start == self.end
+    }
+
+    #[inline]
+    pub(crate) fn left_region_len(&self) -> usize {
+        self.left_region_len
+    }
+
+    #[inline]
+    pub(crate) fn right_region_len(&self) -> usize {
+        self.right_region_len
+    }
+
+    #[inline]
+    pub(crate) fn main_region_len(&self) -> usize {
+        self.end - self.start
+    }
+
+    #[inline]
+    fn start(&self) -> usize {
+        self.start
+    }
+
+    #[inline]
+    fn end(&self) -> usize {
+        self.end
     }
 
     /// Returns `true` if the TRBuffer contains no elements.
     #[inline]
     pub fn is_empty(&self) -> bool {
         self.reservation.is_none()
-            && self.l_region.is_empty()
-            && self.m_region.is_empty()
-            && self.r_region.is_empty()
+            && self.left_region_is_empty()
+            && self.right_region_is_empty()
+            && self.main_region_is_empty()
     }
 
+    #[cfg(test)]
     #[inline]
     pub(crate) fn reservation(&self) -> Option<&Reservation> {
         self.reservation.as_ref()
@@ -194,15 +229,16 @@ impl<T> TRBuffer<T> {
     /// Returns the number of elements in the TRBuffer.
     #[inline]
     pub fn len(&self) -> usize {
-        self.l_region.len() + self.m_region.len() + self.r_region.len()
+        self.left_region_len() + self.main_region_len() + self.right_region_len()
     }
 
     /// Clears all regions and reservations.
     #[inline]
     pub fn clear(&mut self) {
-        self.l_region.reset();
-        self.m_region.reset();
-        self.r_region.reset();
+        self.left_region_len = 0;
+        self.right_region_len = 0;
+        self.start = 0;
+        self.end = 0;
         self.reservation = None;
     }
 
@@ -226,50 +262,54 @@ impl<T> TRBuffer<T> {
     }
 
     fn reallocate_front(&mut self, additional: usize) -> Result<(), TriskellError> {
+        let capacity = self.capacity();
+
         self.reallocate(additional)?;
 
+        debug_assert!(self.capacity() > capacity);
+
         // Move Right Region at the end of the buffer.
-        if !self.r_region.is_empty() {
+        if !self.right_region_is_empty() {
             unsafe {
                 std::ptr::copy(
-                    self.as_mut_ptr().add(self.r_region.start()),
-                    self.as_mut_ptr().add(self.capacity() - self.r_region.len()),
-                    self.r_region.len(),
+                    self.as_mut_ptr().add(capacity - self.right_region_len()),
+                    self.as_mut_ptr()
+                        .add(self.capacity() - self.right_region_len()),
+                    self.right_region_len(),
                 );
             }
-            self.r_region
-                .set(self.capacity() - self.r_region.len(), self.capacity());
         }
 
         Ok(())
     }
 
     fn reallocate_back(&mut self, additional: usize) -> Result<(), TriskellError> {
+        let capacity = self.capacity();
+
         self.reallocate(additional)?;
 
         // Move Right Region at the end of the buffer.
-        if !self.r_region.is_empty() {
+        if !self.right_region_is_empty() {
             unsafe {
                 std::ptr::copy(
-                    self.as_mut_ptr().add(self.r_region.start()),
-                    self.as_mut_ptr().add(self.capacity() - self.r_region.len()),
-                    self.r_region.len(),
+                    self.as_mut_ptr().add(capacity - self.right_region_len()),
+                    self.as_mut_ptr()
+                        .add(self.capacity() - self.right_region_len()),
+                    self.right_region_len(),
                 );
             }
-            self.r_region
-                .set(self.capacity() - self.r_region.len(), self.capacity());
         }
         // Append Left Region to Main Region
-        if !self.l_region.is_empty() {
+        if !self.left_region_is_empty() {
             unsafe {
                 std::ptr::copy_nonoverlapping(
-                    self.as_mut_ptr().add(self.l_region.start()),
-                    self.as_mut_ptr().add(self.m_region.end()),
-                    self.l_region.len(),
+                    self.as_mut_ptr(),
+                    self.as_mut_ptr().add(self.end()),
+                    self.left_region_len(),
                 );
             }
-            self.m_region.add_end(self.l_region.len());
-            self.l_region.reset();
+            self.end += self.left_region_len();
+            self.left_region_len = 0;
         }
 
         Ok(())
@@ -282,32 +322,32 @@ impl<T> TRBuffer<T> {
         debug_assert!(len > 0);
 
         // Right Region is not empty, it means Main Region is already full.
-        let reserve_start = if !self.r_region.is_empty() {
-            let space_after_m = self.r_region.start() - self.m_region.end();
+        let reserve_start = if !self.right_region_is_empty() {
+            let space_after_m = self.right_region_start() - self.end();
             // There is enough space to prepend to the Right Region
             if space_after_m >= len {
                 // TODO: replace by `unchecked_sub` when the API become stable
-                self.r_region.start().wrapping_sub(len)
+                self.right_region_start().wrapping_sub(len)
             }
             // No more space, need to allocate more bytes
             else {
                 self.reallocate_front(len)?;
                 // TODO: replace by `unchecked_sub` when the API become stable
-                (self.capacity() - self.r_region.len()).wrapping_sub(len)
+                self.right_region_start().wrapping_sub(len)
             }
         }
         // Right Region is empty, check if Main Region has enough space
         // to prepend additional bytes.
         else {
-            let space_before_m = self.m_region.start() - self.l_region.end();
+            let space_before_m = self.start() - self.left_region_end();
             // There is enough space to prepend the Main Region
             if space_before_m >= len {
                 // TODO: replace by `unchecked_sub` when the API become stable
-                self.m_region.start().wrapping_sub(len)
+                self.start().wrapping_sub(len)
             }
             // Need to reserve in the Right Region
             else {
-                let space_after_m = self.capacity() - self.m_region.end();
+                let space_after_m = self.capacity() - self.end();
 
                 // No space available, need to allocate more bytes
                 if space_after_m < len {
@@ -330,35 +370,35 @@ impl<T> TRBuffer<T> {
         debug_assert!(len > 0);
 
         // Left Region is not empty, it means Main Region is already full.
-        let reserve_start = if !self.l_region.is_empty() {
-            let space_before_m = self.m_region.start() - self.l_region.end();
+        let reserve_start = if !self.left_region_is_empty() {
+            let space_before_m = self.start() - self.left_region_end();
             // There is enough space to append the Left Region
             if space_before_m >= len {
-                self.l_region.end()
+                self.left_region_end()
             }
             // No more space, need to allocate more bytes
             else {
                 self.reallocate_back(len)?;
-                self.m_region.end()
+                self.end()
             }
         }
         // Left Region is empty, check if Main Region has enough space
         // to append additional bytes.
         else {
-            let space_after_m = self.capacity() - self.m_region.end() - self.r_region.len();
+            let space_after_m = self.capacity() - self.end() - self.right_region_len();
 
             // There is enough space to append the Main Region
             if space_after_m >= len {
-                self.m_region.end()
+                self.end()
             }
             // There is enough space to reserve in the Left Region
-            else if self.m_region.start() >= len {
+            else if self.start() >= len {
                 0
             }
             // No more space, need to allocate more bytes
             else {
                 self.reallocate_back(len - space_after_m)?;
-                self.m_region.end()
+                self.end()
             }
         };
 
@@ -372,45 +412,41 @@ impl<T> TRBuffer<T> {
             return;
         }
 
-        let capacity = self.capacity();
-        if let Some(reservation) = self.reservation() {
+        if let Some(reservation) = self.reservation.take() {
             let to_commit = std::cmp::min(len, reservation.len);
             match reservation.reservation_type() {
                 ReservationType::Back => {
                     // Initial commit
-                    if self.m_region.is_empty() && self.l_region.is_empty() {
-                        self.m_region
-                            .set(reservation.start(), reservation.start() + to_commit);
+                    if self.main_region_is_empty() && self.left_region_is_empty() {
+                        self.start = reservation.start();
+                        self.end = self.start + to_commit;
                     }
                     // Bytes reserved just after Main Region
-                    else if reservation.start() == self.m_region.end() {
-                        self.m_region.add_end(to_commit);
+                    else if reservation.start() == self.end() {
+                        self.end += to_commit;
                     }
                     // Increase Left Region
                     else {
-                        self.l_region.add_end(to_commit);
+                        self.left_region_len += to_commit;
                     }
                 }
                 ReservationType::Front => {
                     // Initial commit
-                    if self.m_region.is_empty() && self.r_region.is_empty() {
-                        self.m_region
-                            .set(reservation.end() - to_commit, reservation.end());
+                    if self.main_region_is_empty() && self.right_region_is_empty() {
+                        self.start = reservation.end() - to_commit;
+                        self.end = reservation.end();
                     }
                     // Bytes reserved just before Main Region
-                    else if reservation.end() == self.m_region.start() {
-                        self.m_region.sub_start(to_commit);
+                    else if reservation.end() == self.start() {
+                        self.start -= to_commit;
                     }
                     // Increase Right Region
-                    else if self.r_region.is_empty() {
-                        self.r_region.set(capacity - to_commit, capacity);
-                    } else {
-                        self.r_region.sub_start(to_commit);
+                    else {
+                        self.right_region_len += to_commit;
                     }
                 }
             }
         }
-        self.reservation = None;
     }
 
     /// Retrieves available (committed) data as a contiguous block (FIFO).
@@ -423,12 +459,12 @@ impl<T> TRBuffer<T> {
             .map(|(start, end)| self.get(start, end))
     }
     pub fn read_front_indexes(&self) -> Option<(usize, usize)> {
-        if !self.r_region.is_empty() {
-            Some((self.r_region.start(), self.r_region.end()))
-        } else if !self.m_region.is_empty() {
-            Some((self.m_region.start(), self.m_region.end()))
-        } else if !self.l_region.is_empty() {
-            Some((self.l_region.start(), self.l_region.end()))
+        if !self.right_region_is_empty() {
+            Some((self.right_region_start(), self.capacity()))
+        } else if !self.main_region_is_empty() {
+            Some((self.start(), self.end()))
+        } else if !self.left_region_is_empty() {
+            Some((0, self.left_region_end()))
         } else {
             None
         }
@@ -444,12 +480,12 @@ impl<T> TRBuffer<T> {
             .map(|(start, end)| self.get(start, end))
     }
     pub fn read_back_indexes(&self) -> Option<(usize, usize)> {
-        if !self.l_region.is_empty() {
-            Some((self.l_region.start(), self.l_region.end()))
-        } else if !self.m_region.is_empty() {
-            Some((self.m_region.start(), self.m_region.end()))
-        } else if !self.r_region.is_empty() {
-            Some((self.r_region.start(), self.r_region.end()))
+        if !self.left_region_is_empty() {
+            Some((0, self.left_region_end()))
+        } else if !self.main_region_is_empty() {
+            Some((self.start(), self.end()))
+        } else if !self.right_region_is_empty() {
+            Some((self.right_region_start(), self.capacity()))
         } else {
             None
         }
@@ -469,36 +505,37 @@ impl<T> TRBuffer<T> {
     ///
     /// The next time `read()` is called, it will not include these elements.
     pub fn free_front(&mut self, mut len: usize) {
-        let r_len = self.r_region.len();
+        let r_len = self.right_region_len();
         // Free the Right Region
         if len >= r_len {
             len -= r_len;
 
-            let m_len = self.m_region.len();
+            let m_len = self.main_region_len();
             // Free the Main Region
             if len >= m_len {
                 len -= m_len;
 
                 // If `len` is greater than Left Region, remove remaining bytes to Left Region and
                 // swap Left Region and Main Region
-                if self.l_region.len() > len {
-                    self.l_region.add_start(len);
-                    self.m_region.set_region(&self.l_region);
+                if self.left_region_len() > len {
+                    self.start = len;
+                    self.end = self.left_region_len();
                 } else {
-                    self.m_region.reset();
+                    self.start = 0;
+                    self.end = 0;
                 }
 
-                self.l_region.reset();
+                self.left_region_len = 0;
             }
             // Remove remaining bytes from Main Region
             else {
-                self.m_region.add_start(len);
+                self.start += len;
             }
-            self.r_region.reset();
+            self.right_region_len = 0;
         }
         // Remove `len` from the Right Region
         else {
-            self.r_region.add_start(len);
+            self.right_region_len -= len;
         }
     }
 
@@ -506,37 +543,38 @@ impl<T> TRBuffer<T> {
     ///
     /// The next time `read()` is called, it will not include these elements.
     pub fn free_back(&mut self, mut len: usize) {
-        let l_len = self.l_region.len();
+        let l_len = self.left_region_end();
         // Free the Left Region
         if len >= l_len {
             len -= l_len;
 
             // Free the Main Region
-            let m_len = self.m_region.len();
+            let m_len = self.main_region_len();
             if len >= m_len {
                 len -= m_len;
 
                 // If `len` is greater than Right Region, remove remaining bytes to Right Region and
                 // swap Right Region and Main Region
-                if self.r_region.len() > len {
-                    self.r_region.sub_end(len);
-                    self.m_region.set_region(&self.r_region);
+                if self.right_region_len() > len {
+                    self.start = self.right_region_start();
+                    self.end = self.capacity() - len;
                 } else {
-                    self.m_region.reset();
+                    self.start = 0;
+                    self.end = 0;
                 }
 
-                self.r_region.reset();
+                self.right_region_len = 0;
             }
             // Remove remaining bytes from the Main Region
             else {
-                self.m_region.sub_end(len);
+                self.end -= len;
             }
 
-            self.l_region.reset();
+            self.left_region_len = 0;
         }
         // Remove remaining bytes from the Left Region
         else {
-            self.l_region.sub_end(len);
+            self.left_region_len -= len;
         }
     }
 }
@@ -678,7 +716,7 @@ mod tests {
         assert_eq!(buffer.len(), 0);
         assert_eq!(buffer.capacity(), 3);
         buffer.commit(3);
-        assert_eq!(buffer.m_region().len(), 3);
+        assert_eq!(buffer.main_region_len(), 3);
         let block = buffer.read_back().unwrap();
         assert_eq!(block.len(), 3);
         assert_eq!(unsafe { block[0].assume_init() }, 0x1);
@@ -696,8 +734,8 @@ mod tests {
 
         assert_eq!(buffer.capacity(), 6);
         buffer.commit(3);
-        assert_eq!(buffer.m_region().len(), 3);
-        assert_eq!(buffer.r_region().len(), 3);
+        assert_eq!(buffer.main_region_len(), 3);
+        assert_eq!(buffer.right_region_len(), 3);
         let block = buffer.read_back().unwrap();
         assert_eq!(block.len(), 3);
         assert_eq!(unsafe { block[0].assume_init() }, 0x1);
@@ -716,8 +754,8 @@ mod tests {
 
         assert_eq!(buffer.capacity(), 9);
         buffer.commit(3);
-        assert_eq!(buffer.m_region().len(), 6);
-        assert_eq!(buffer.r_region().len(), 3);
+        assert_eq!(buffer.main_region_len(), 6);
+        assert_eq!(buffer.right_region_len(), 3);
         let block = buffer.read_back().unwrap();
         assert_eq!(block.len(), 6);
         assert_eq!(unsafe { block[0].assume_init() }, 0x1);
@@ -731,8 +769,8 @@ mod tests {
         buffer.free_front(6);
 
         assert_eq!(buffer.capacity(), 9);
-        assert_eq!(buffer.m_region().len(), 3);
-        assert_eq!(buffer.r_region().len(), 0);
+        assert_eq!(buffer.main_region_len(), 3);
+        assert_eq!(buffer.right_region_len(), 0);
         let block = buffer.read_back().unwrap();
         assert_eq!(block.len(), 3);
         assert_eq!(unsafe { block[0].assume_init() }, 0xa);
@@ -757,8 +795,8 @@ mod tests {
 
         assert_eq!(buffer.capacity(), 9);
         buffer.commit(2);
-        assert_eq!(buffer.m_region().len(), 5);
-        assert_eq!(buffer.l_region().len(), 2);
+        assert_eq!(buffer.main_region_len(), 5);
+        assert_eq!(buffer.left_region_len(), 2);
         let block = buffer.read_back().unwrap();
         assert_eq!(block.len(), 2);
         assert_eq!(unsafe { block[0].assume_init() }, 0xd);
@@ -769,8 +807,8 @@ mod tests {
         buffer.free_front(3);
 
         assert_eq!(buffer.capacity(), 9);
-        assert_eq!(buffer.m_region().len(), 2);
-        assert_eq!(buffer.l_region().len(), 0);
+        assert_eq!(buffer.main_region_len(), 2);
+        assert_eq!(buffer.left_region_len(), 0);
         let block = buffer.read_back().unwrap();
         assert_eq!(block.len(), 2);
         assert_eq!(unsafe { block[0].assume_init() }, 0xd);
@@ -792,7 +830,7 @@ mod tests {
         assert_eq!(buffer.len(), 0);
         assert_eq!(buffer.capacity(), 3);
         buffer.commit(3);
-        assert_eq!(buffer.m_region().len(), 3);
+        assert_eq!(buffer.main_region_len(), 3);
         let block = buffer.read_back().unwrap();
         assert_eq!(block.len(), 3);
         assert_eq!(unsafe { block[0].assume_init() }, 0x1);
@@ -810,7 +848,7 @@ mod tests {
 
         assert_eq!(buffer.capacity(), 6);
         buffer.commit(3);
-        assert_eq!(buffer.m_region().len(), 6);
+        assert_eq!(buffer.main_region_len(), 6);
         let block = buffer.read_back().unwrap();
         assert_eq!(block.len(), 6);
         assert_eq!(unsafe { block[0].assume_init() }, 0x1);
@@ -831,8 +869,8 @@ mod tests {
 
         assert_eq!(buffer.capacity(), 9);
         buffer.commit(3);
-        assert_eq!(buffer.m_region().len(), 6);
-        assert_eq!(buffer.r_region().len(), 3);
+        assert_eq!(buffer.main_region_len(), 6);
+        assert_eq!(buffer.right_region_len(), 3);
         let block = buffer.read_back().unwrap();
         assert_eq!(block.len(), 6);
         assert_eq!(unsafe { block[0].assume_init() }, 0x1);
@@ -868,8 +906,8 @@ mod tests {
 
         assert_eq!(buffer.capacity(), 9);
         buffer.commit(3);
-        assert_eq!(buffer.m_region().len(), 7);
-        assert_eq!(buffer.r_region().len(), 0);
+        assert_eq!(buffer.main_region_len(), 7);
+        assert_eq!(buffer.right_region_len(), 0);
         let block = buffer.read_front().unwrap();
         assert_eq!(block.len(), 7);
         assert_eq!(unsafe { block[0].assume_init() }, 0x4);
@@ -891,8 +929,8 @@ mod tests {
 
         assert_eq!(buffer.capacity(), 11);
         buffer.commit(3);
-        assert_eq!(buffer.m_region().len(), 7);
-        assert_eq!(buffer.r_region().len(), 3);
+        assert_eq!(buffer.main_region_len(), 7);
+        assert_eq!(buffer.right_region_len(), 3);
 
         {
             // [ . 4 5 1 2 3 a b c d e f . ]
@@ -904,8 +942,8 @@ mod tests {
 
         assert_eq!(buffer.capacity(), 12);
         buffer.commit(1);
-        assert_eq!(buffer.m_region().len(), 7);
-        assert_eq!(buffer.r_region().len(), 4);
+        assert_eq!(buffer.main_region_len(), 7);
+        assert_eq!(buffer.right_region_len(), 4);
         let block = buffer.read_front().unwrap();
         assert_eq!(block.len(), 4);
         assert_eq!(unsafe { block[0].assume_init() }, 0x7);
@@ -916,8 +954,8 @@ mod tests {
         buffer.free_front(2);
         buffer.free_front(2);
 
-        assert_eq!(buffer.m_region().len(), 7);
-        assert_eq!(buffer.r_region().len(), 0);
+        assert_eq!(buffer.main_region_len(), 7);
+        assert_eq!(buffer.right_region_len(), 0);
         let block = buffer.read_front().unwrap();
         assert_eq!(block.len(), 7);
         assert_eq!(unsafe { block[0].assume_init() }, 0x4);
@@ -1084,7 +1122,7 @@ mod tests {
         // [ 1 9 . . ]
         buffer.free_back(2);
         assert_eq!(buffer.capacity(), 4);
-        assert_eq!(buffer.m_region().len(), 2);
+        assert_eq!(buffer.main_region_len(), 2);
         {
             // [ 1 9 . . . . ]
             // [ 1 9 2 3 4 5 ]
