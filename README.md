@@ -43,12 +43,14 @@ buffer.free_front(2);
 
 ## Capacity and reallocation
 
-The capacity of a tri-partite ring buffer is the amount of space allocated for any future elements that will be added
-onto it. If a reservation exceeds its capacity, its capacity will automatically be increased.
+If a reservation exceeds the buffer capacity, depending on the choosen allocation strategy new space will be allocated or
+an error is returned if the allocation failed.
 
-There is two allocation strategy:
+
+
+There are three allocation strategies:
 * **AllocationStrategy::Exact**: Reserves the minimum capacity required to insert a specified number of additional elements.
-* **AllocationStrategy::AtLeast**: With this strategy, capacity is reserved to accommodate at least the specified number of additional elements.
+* **AllocationStrategy::AtLeast (default)**: With this strategy, capacity is reserved to accommodate at least the specified number of additional elements.
 * **AllocationStrategy::NonGrowable**: If attempting to reserve capacity beyond the buffer's limit, return an error.
 ```rust
 use triskell::{TRBuffer, AllocationStrategy};
