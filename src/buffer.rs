@@ -712,6 +712,106 @@ mod tests {
     }
 
     #[test]
+    fn reserve_back_nominal() {
+        let mut buffer: TRBuffer<MaybeUninit<u8>> = TRBuffer::new();
+        buffer.set_allocation_strategy(AllocationStrategy::Exact);
+        {
+            // [ 1 9 c a b c ]
+            let reserved = buffer.reserve_back(6).unwrap();
+            reserved[0].write(0x1);
+            reserved[1].write(0x9);
+            reserved[2].write(0xc);
+            reserved[3].write(0xa);
+            reserved[4].write(0xb);
+            reserved[5].write(0xc);
+        }
+
+        buffer.commit(6);
+        // [ . . . a b c ]
+        buffer.free_front(3);
+
+        {
+            // [ 1 2 3 a b c ]
+            let reserved = buffer.reserve_back(3).unwrap();
+            reserved[0].write(0x1);
+            reserved[1].write(0x2);
+            reserved[2].write(0x3);
+        }
+
+        buffer.commit(3);
+        assert_eq!(buffer.len(), 6);
+        assert_eq!(buffer.capacity(), 6);
+
+        let block = buffer.read_back().unwrap();
+        assert_eq!(block.len(), 3);
+        assert_eq!(unsafe { block[0].assume_init() }, 0x1);
+        assert_eq!(unsafe { block[1].assume_init() }, 0x2);
+        assert_eq!(unsafe { block[2].assume_init() }, 0x3);
+
+        // [ . . . a b c ]
+        buffer.free_back(3);
+
+        assert_eq!(buffer.len(), 3);
+        assert_eq!(buffer.capacity(), 6);
+
+        let block = buffer.read_back().unwrap();
+        assert_eq!(block.len(), 3);
+        assert_eq!(unsafe { block[0].assume_init() }, 0xa);
+        assert_eq!(unsafe { block[1].assume_init() }, 0xb);
+        assert_eq!(unsafe { block[2].assume_init() }, 0xc);
+    }
+
+    #[test]
+    fn reserve_front_nominal() {
+        let mut buffer: TRBuffer<MaybeUninit<u8>> = TRBuffer::new();
+        buffer.set_allocation_strategy(AllocationStrategy::Exact);
+        {
+            // [ 1 9 c a b c ]
+            let reserved = buffer.reserve_front(6).unwrap();
+            reserved[0].write(0x1);
+            reserved[1].write(0x9);
+            reserved[2].write(0xc);
+            reserved[3].write(0xa);
+            reserved[4].write(0xb);
+            reserved[5].write(0xc);
+        }
+
+        buffer.commit(6);
+        // [ 1 9 c . . . ]
+        buffer.free_back(3);
+
+        {
+            // [ 1 9 c 1 2 3 ]
+            let reserved = buffer.reserve_front(3).unwrap();
+            reserved[0].write(0x1);
+            reserved[1].write(0x2);
+            reserved[2].write(0x3);
+        }
+
+        buffer.commit(3);
+        assert_eq!(buffer.len(), 6);
+        assert_eq!(buffer.capacity(), 6);
+
+        let block = buffer.read_front().unwrap();
+        assert_eq!(block.len(), 3);
+        assert_eq!(unsafe { block[0].assume_init() }, 0x1);
+        assert_eq!(unsafe { block[1].assume_init() }, 0x2);
+        assert_eq!(unsafe { block[2].assume_init() }, 0x3);
+
+        // [ 1 9 c . . . ]
+        buffer.free_front(3);
+
+        assert_eq!(buffer.len(), 3);
+        assert_eq!(buffer.capacity(), 6);
+
+        let block = buffer.read_front().unwrap();
+        assert_eq!(block.len(), 3);
+        assert_eq!(unsafe { block[0].assume_init() }, 0x1);
+        assert_eq!(unsafe { block[1].assume_init() }, 0x9);
+        assert_eq!(unsafe { block[2].assume_init() }, 0xc);
+    }
+
+    #[test]
     fn reallocate_back() {
         let mut buffer: TRBuffer<MaybeUninit<u8>> = TRBuffer::new();
         buffer.set_allocation_strategy(AllocationStrategy::Exact);
