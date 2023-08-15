@@ -458,6 +458,11 @@ impl<T> TRBuffer<T> {
         self.read_front_indexes()
             .map(|(start, end)| self.get(start, end))
     }
+    #[inline]
+    pub fn read_front_mut(&mut self) -> Option<&mut [T]> {
+        self.read_front_indexes()
+            .map(|(start, end)| self.get_mut(start, end))
+    }
     pub fn read_front_indexes(&self) -> Option<(usize, usize)> {
         if !self.right_region_is_empty() {
             Some((self.right_region_start(), self.capacity()))
@@ -478,6 +483,11 @@ impl<T> TRBuffer<T> {
     pub fn read_back(&self) -> Option<&[T]> {
         self.read_back_indexes()
             .map(|(start, end)| self.get(start, end))
+    }
+    #[inline]
+    pub fn read_back_mut(&mut self) -> Option<&mut [T]> {
+        self.read_back_indexes()
+            .map(|(start, end)| self.get_mut(start, end))
     }
     pub fn read_back_indexes(&self) -> Option<(usize, usize)> {
         if !self.left_region_is_empty() {
