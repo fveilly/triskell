@@ -1,6 +1,6 @@
 [package]
 name = "triskell"
-version = "0.1.1"
+version = "0.1.2"
 authors = ["Florent Veilly <florent.veilly@gmail.com>"]
 edition = "2021"
 description = "A tri-partite ring buffer"
